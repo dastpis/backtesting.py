@@ -36,3 +36,21 @@ ignore-names = [
     'l',
     'h',
 ]
+[tool.poetry]
+name = "backtesting-py"
+version = "0.1.2"
+description = ""
+authors = ["Your Name <you@example.com>"]
+readme = "README.md"
+packages = [{include = "backtesting"}]
+
+[tool.poetry.dependencies]
+python = "3.10.*"
+numpy = "^1.26.1"
+pandas = "^2.1.2"
+bokeh = "3.2.1"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

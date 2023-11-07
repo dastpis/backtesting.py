@@ -523,11 +523,14 @@ return this.labels[index] || "";
 
             # Use .get()! A user might have assigned a Strategy.data-evolved
             # _Array without Strategy.I()
-            if not value._opts.get('plot') or _too_many_dims(value):
+            plot = value._opts.get('plot')
+            plot_indicator_values = plot.count(True) > 1 if isinstance(plot, list) else plot
+            if not plot_indicator_values  or _too_many_dims(value):
                 continue
 
             is_overlay = value._opts['overlay']
             is_scatter = value._opts['scatter']
+            is_histogram = value._opts["histogram"]
             if is_overlay:
                 fig = fig_ohlc
             else:
@@ -551,7 +554,16 @@ return this.labels[index] || "";
                 tooltip_label = ", ".join(value.name)
                 legend_labels = [LegendStr(item) for item in value.name]
 
+            if isinstance(is_histogram, bool):
+                is_histogram = [is_histogram for i in range(len(value))]
+
+            if isinstance(plot, bool):
+                plot = [plot for i in range(len(value))]
+
             for j, arr in enumerate(value):
+                if not plot[j]:
+                    continue
+
                 color = next(colors)
                 source_name = f'{legend_labels[j]}_{i}_{j}'
                 if arr.dtype == bool:
@@ -560,6 +572,9 @@ return this.labels[index] || "";
                 tooltips.append(f'@{{{source_name}}}{{0,0.0[0000]}}')
                 if is_overlay:
                     ohlc_extreme_values[source_name] = arr
+                    if is_histogram[j]:
+                        fig.vbar('index', BAR_WIDTH, source_name, source=source,
+                                 legend_label=legend_labels[j], color=color)
                     if is_scatter:
                         fig.scatter(
                             'index', source_name, source=source,
@@ -572,7 +587,10 @@ return this.labels[index] || "";
                             legend_label=legend_labels[j], line_color=color,
                             line_width=1.3)
                 else:
-                    if is_scatter:
+                    if is_histogram[j]:
+                        r = fig.vbar('index', BAR_WIDTH, source_name, source=source,
+                                     legend_label=legend_labels[j], color=color)
+                    elif is_scatter:
                         r = fig.scatter(
                             'index', source_name, source=source,
                             legend_label=legend_labels[j], color=color,

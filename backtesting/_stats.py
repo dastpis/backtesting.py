@@ -62,6 +62,7 @@ def compute_stats(
             'EntryPrice': [t.entry_price for t in trades],
             'ExitPrice': [t.exit_price for t in trades],
             'PnL': [t.pl for t in trades],
+            'Pips': [t.pips for t in trades],
             'ReturnPct': [t.pl_pct for t in trades],
             'EntryTime': [t.entry_time for t in trades],
             'ExitTime': [t.exit_time for t in trades],
@@ -71,6 +72,7 @@ def compute_stats(
     del trades
 
     pl = trades_df['PnL']
+    pips = trades_df['Pips']
     returns = trades_df['ReturnPct']
     durations = trades_df['Duration']
 
@@ -93,6 +95,7 @@ def compute_stats(
     s.loc['Equity Final [$]'] = equity[-1]
     s.loc['Equity Peak [$]'] = equity.max()
     s.loc['Return [%]'] = (equity[-1] - equity[0]) / equity[0] * 100
+    s.loc['Pips'] = pips.sum()
     c = ohlc_data.Close.values
     s.loc['Buy & Hold Return [%]'] = (c[-1] - c[0]) / c[0] * 100  # long-only return
 
