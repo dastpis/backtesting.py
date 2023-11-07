@@ -77,7 +77,7 @@ class Strategy(metaclass=ABCMeta):
 
     def I(self,  # noqa: E743
           func: Callable, *args,
-          name=None, plot=True, overlay=None, color=None, scatter=False,
+          name=None, plot=True, overlay=None, color=None, scatter=False, histogram=False,
           **kwargs) -> np.ndarray:
         """
         Declare an indicator. An indicator is just an array of values,
@@ -108,6 +108,13 @@ class Strategy(metaclass=ABCMeta):
 
         If `scatter` is `True`, the plotted indicator marker will be a
         circle instead of a connected line segment (default).
+
+        If `histograms` is `True`, the indicator value will be plotted
+        as a histogram instead of line or circle. When `histogram` is
+        `True`, 'scatter' value will be ignored even if it's set.
+        If `func` returns multiple arrays, `histogram` can be a sequence
+        of strings, and its size must agree with the number of arrays
+        returned.
 
         Additional `*args` and `**kwargs` are passed to `func` and can
         be used for parameters.
@@ -149,10 +156,11 @@ class Strategy(metaclass=ABCMeta):
         if is_arraylike and np.argmax(value.shape) == 0:
             value = value.T
 
-        if isinstance(name, list) and (np.atleast_2d(value).shape[0] != len(name)):
-            raise ValueError(
-                f'Length of `name=` ({len(name)}) must agree with the number '
-                f'of arrays the indicator returns ({value.shape[0]}).')
+        for param in [name, histogram, plot]:
+            if isinstance(param, list) and (np.atleast_2d(value).shape[0] != len(param)):
+                raise ValueError(
+                    f'Length of `name=` ({len(param)}) must agree with the number '
+                    f'of arrays the indicator returns ({value.shape[0]}).')
 
         if not is_arraylike or not 1 <= value.ndim <= 2 or value.shape[-1] != len(self._data.Close):
             raise ValueError(
@@ -160,7 +168,8 @@ class Strategy(metaclass=ABCMeta):
                 f'length as `data` (data shape: {self._data.Close.shape}; indicator "{name}" '
                 f'shape: {getattr(value, "shape" , "")}, returned value: {value})')
 
-        if plot and overlay is None and np.issubdtype(value.dtype, np.number):
+        plot_indicator_values = plot.count(True) > 1 if isinstance(plot, list) else plot
+        if plot_indicator_values and overlay is None and np.issubdtype(value.dtype, np.number):
             x = value / self._data.Close
             # By default, overlay if strong majority of indicator values
             # is within 30% of Close
@@ -168,7 +177,7 @@ class Strategy(metaclass=ABCMeta):
                 overlay = ((x < 1.4) & (x > .6)).mean() > .6
 
         value = _Indicator(value, name=name, plot=plot, overlay=overlay,
-                           color=color, scatter=scatter,
+                           color=color, scatter=scatter, histogram=histogram,
                            # _Indicator.s Series accessor uses this:
                            index=self.data.index)
         self._indicators.append(value)
@@ -654,6 +663,12 @@ class Trade:
         """Trade profit (positive) or loss (negative) in cash units."""
         price = self.__exit_price or self.__broker.last_price
         return self.__size * (price - self.__entry_price)
+
+    @property
+    def pips(self):
+        """Trade profit (positive) or loss (negative) in pips"""
+        price = self.__exit_price or self.__broker.last_price
+        return price - self.__entry_price
 
     @property
     def pl_pct(self):
