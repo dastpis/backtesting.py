@@ -668,7 +668,7 @@ class Trade:
     def pips(self):
         """Trade profit (positive) or loss (negative) in pips"""
         price = self.__exit_price or self.__broker.last_price
-        return price - self.__entry_price
+        return copysign(price - self.__entry_price, self.__size)
 
     @property
     def pl_pct(self):
