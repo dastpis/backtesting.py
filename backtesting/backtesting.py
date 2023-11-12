@@ -156,10 +156,10 @@ class Strategy(metaclass=ABCMeta):
         if is_arraylike and np.argmax(value.shape) == 0:
             value = value.T
 
-        for param in [name, histogram, plot]:
+        for name, param in {"name": name, "histogram": histogram, "plot": plot}.items():
             if isinstance(param, list) and (np.atleast_2d(value).shape[0] != len(param)):
                 raise ValueError(
-                    f'Length of `name=` ({len(param)}) must agree with the number '
+                    f'Length of `{name}=` ({len(param)}) must agree with the number '
                     f'of arrays the indicator returns ({value.shape[0]}).')
 
         if not is_arraylike or not 1 <= value.ndim <= 2 or value.shape[-1] != len(self._data.Close):
