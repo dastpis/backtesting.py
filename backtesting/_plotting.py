@@ -278,15 +278,16 @@ return this.labels[index] || "";
         fig.yaxis.minor_tick_line_color = None
         return fig
 
-    def set_tooltips(fig, tooltips=(), vline=True, renderers=()):
+    def set_tooltips(fig, tooltips=(), vline=True, renderers=(), formatters=None):
+        if formatters is None:
+            formatters = {}
         tooltips = list(tooltips)
         renderers = list(renderers)
 
         if is_datetime_index:
-            formatters = {'@datetime': 'datetime'}
+            formatters['@datetime'] = 'datetime'
             tooltips = [("Date", "@datetime{%c}")] + tooltips
         else:
-            formatters = {}
             tooltips = [("#", "@index")] + tooltips
         fig.add_tools(HoverTool(
             point_policy='follow_mouse',
@@ -404,8 +405,12 @@ return this.labels[index] || "";
                             line_dash='dashed', line_width=1))
         returns_long = np.where(trades['Size'] > 0, trades['ReturnPct'], np.nan)
         returns_short = np.where(trades['Size'] < 0, trades['ReturnPct'], np.nan)
+        entry_time = trades['EntryTime']
+        tag = pd.Series([','.join(map(str, tag)) for tag in trades['Tag']])
         size = trades['Size'].abs()
         size = np.interp(size, (size.min(), size.max()), (8, 20))
+        trade_source.add(entry_time, 'entry_time')
+        trade_source.add(tag, "tag")
         trade_source.add(returns_long, 'returns_long')
         trade_source.add(returns_short, 'returns_short')
         trade_source.add(size, 'marker_size')
@@ -415,13 +420,15 @@ return this.labels[index] || "";
                          marker='triangle', line_color='black', size='marker_size')
         r2 = fig.scatter('index', 'returns_short', source=trade_source, fill_color=cmap,
                          marker='inverted_triangle', line_color='black', size='marker_size')
-        tooltips = [("Size", "@size{0,0}")]
+        formatters = {"@entry_time": "datetime"}
+        tooltips = [("Opened", "@entry_time{%c}"), ("Size", "@size{0,0}"), ("Tag", "@tag")]
+
         if 'count' in trades:
             tooltips.append(("Count", "@count{0,0}"))
         set_tooltips(fig, tooltips + [("P/L", "@returns_long{+0.[000]%}")],
-                     vline=False, renderers=[r1])
+                     vline=False, renderers=[r1], formatters=formatters)
         set_tooltips(fig, tooltips + [("P/L", "@returns_short{+0.[000]%}")],
-                     vline=False, renderers=[r2])
+                     vline=False, renderers=[r2], formatters=formatters)
         fig.yaxis.formatter = NumeralTickFormatter(format="0.[00]%")
         return fig
 

@@ -156,10 +156,10 @@ class Strategy(metaclass=ABCMeta):
         if is_arraylike and np.argmax(value.shape) == 0:
             value = value.T
 
-        for name, param in {"name": name, "histogram": histogram, "plot": plot}.items():
-            if isinstance(param, list) and (np.atleast_2d(value).shape[0] != len(param)):
+        for n, p in {"name": name, "histogram": histogram, "plot": plot}.items():
+            if isinstance(p, list) and (np.atleast_2d(value).shape[0] != len(p)):
                 raise ValueError(
-                    f'Length of `{name}=` ({len(param)}) must agree with the number '
+                    f'Length of `{n}=` ({len(p)}) must agree with the number '
                     f'of arrays the indicator returns ({value.shape[0]}).')
 
         if not is_arraylike or not 1 <= value.ndim <= 2 or value.shape[-1] != len(self._data.Close):
@@ -422,7 +422,7 @@ class Order:
         self.__sl_price = sl_price
         self.__tp_price = tp_price
         self.__parent_trade = parent_trade
-        self.__tag = tag
+        self.__tag = tag if isinstance(tag, list) else list(tag) if tag else []
 
     def _replace(self, **kwargs):
         for k, v in kwargs.items():
@@ -576,11 +576,11 @@ class Trade:
     def _copy(self, **kwargs):
         return copy(self)._replace(**kwargs)
 
-    def close(self, portion: float = 1.):
+    def close(self, portion: float = 1., tag=[]):
         """Place new `Order` to close `portion` of the trade at next market price."""
         assert 0 < portion <= 1, "portion must be a fraction between 0 and 1"
         size = copysign(max(1, round(abs(self.__size) * portion)), -self.__size)
-        order = Order(self.__broker, size, parent_trade=self, tag=self.__tag)
+        order = Order(self.__broker, size, parent_trade=self, tag=self.__tag+tag)
         self.__broker.orders.insert(0, order)
 
     # Fields getters
@@ -625,6 +625,9 @@ class Trade:
         See also `Order.tag`.
         """
         return self.__tag
+
+    def set_tag(self, tag):
+        self.__tag = tag
 
     @property
     def _sl_order(self):
@@ -903,10 +906,15 @@ class _Broker:
                 size = copysign(min(abs(_prev_size), abs(order.size)), order.size)
                 # If this trade isn't already closed (e.g. on multiple `trade.close(.5)` calls)
                 if trade in self.trades:
+                    trade.set_tag(order.tag)
                     self._reduce_trade(trade, price, size, time_index)
                     assert order.size != -_prev_size or trade not in self.trades
                 if order in (trade._sl_order,
                              trade._tp_order):
+                    if order == trade._sl_order:
+                        trade.tag.append("SL_HIT")
+                    else:
+                        trade.tag.append("TP_HIT")
                     assert order.size == -trade.size
                     assert order not in self.orders  # Removed when trade was closed
                 else:
