@@ -49,9 +49,10 @@ class Strategy(metaclass=ABCMeta):
     `backtesting.backtesting.Strategy.next` to define
     your own strategy.
     """
-    def __init__(self, broker, data, params):
+    def __init__(self, broker, ticker, data, params):
         self._indicators = []
         self._broker: _Broker = broker
+        self._ticker = ticker
         self._data: _Data = data
         self._params = self._check_params(params)
 
@@ -234,7 +235,7 @@ class Strategy(metaclass=ABCMeta):
         """
         assert 0 < size < 1 or round(size) == size, \
             "size must be a positive fraction of equity, or a positive whole number of units"
-        return self._broker.new_order(size, limit, stop, sl, tp, tag)
+        return self._broker.new_order(size, limit, stop, sl, tp, tag, self._ticker)
 
     def sell(self, *,
              size: float = _FULL_EQUITY,
@@ -254,7 +255,7 @@ class Strategy(metaclass=ABCMeta):
         """
         assert 0 < size < 1 or round(size) == size, \
             "size must be a positive fraction of equity, or a positive whole number of units"
-        return self._broker.new_order(-size, limit, stop, sl, tp, tag)
+        return self._broker.new_order(-size, limit, stop, sl, tp, tag, self._ticker)
 
     @property
     def equity(self) -> float:
@@ -413,7 +414,8 @@ class Order:
                  sl_price: Optional[float] = None,
                  tp_price: Optional[float] = None,
                  parent_trade: Optional['Trade'] = None,
-                 tag: object = None):
+                 tag: object = None,
+                 ticker: str = None):
         self.__broker = broker
         assert size != 0
         self.__size = size
@@ -423,6 +425,7 @@ class Order:
         self.__tp_price = tp_price
         self.__parent_trade = parent_trade
         self.__tag = tag if isinstance(tag, list) else list(tag) if tag else []
+        self.__ticker = ticker
 
     def _replace(self, **kwargs):
         for k, v in kwargs.items():
@@ -439,6 +442,7 @@ class Order:
                                                  ('tp', self.__tp_price),
                                                  ('contingent', self.is_contingent),
                                                  ('tag', self.__tag),
+                                                 ('ticker', self.__ticker)
                                              ) if value is not None))
 
     def cancel(self):
@@ -518,6 +522,13 @@ class Order:
         """
         return self.__tag
 
+    @property
+    def ticker(self):
+        """
+        Ticker of the asset that order refers to
+        """
+        return self.__ticker
+
     __pdoc__['Order.parent_trade'] = False
 
     # Extra properties
@@ -552,7 +563,7 @@ class Trade:
     When an `Order` is filled, it results in an active `Trade`.
     Find active trades in `Strategy.trades` and closed, settled trades in `Strategy.closed_trades`.
     """
-    def __init__(self, broker: '_Broker', size: int, entry_price: float, entry_bar, tag):
+    def __init__(self, broker: '_Broker', size: int, entry_price: float, entry_bar, tag, ticker):
         self.__broker = broker
         self.__size = size
         self.__entry_price = entry_price
@@ -562,11 +573,13 @@ class Trade:
         self.__sl_order: Optional[Order] = None
         self.__tp_order: Optional[Order] = None
         self.__tag = tag
+        self.__ticker = ticker
 
     def __repr__(self):
         return f'<Trade size={self.__size} time={self.__entry_bar}-{self.__exit_bar or ""} ' \
                f'price={self.__entry_price}-{self.__exit_price or ""} pl={self.pl:.0f}' \
-               f'{" tag="+str(self.__tag) if self.__tag is not None else ""}>'
+               f'{" tag="+str(self.__tag) if self.__tag is not None else ""}' \
+               f'{" ticker="+str(self.__ticker) if self.__ticker is not None else ""}>'
 
     def _replace(self, **kwargs):
         for k, v in kwargs.items():
@@ -580,7 +593,7 @@ class Trade:
         """Place new `Order` to close `portion` of the trade at next market price."""
         assert 0 < portion <= 1, "portion must be a fraction between 0 and 1"
         size = copysign(max(1, round(abs(self.__size) * portion)), -self.__size)
-        order = Order(self.__broker, size, parent_trade=self, tag=self.__tag+tag)
+        order = Order(self.__broker, size, parent_trade=self, tag=self.__tag+tag, ticker=self.__ticker)
         self.__broker.orders.insert(0, order)
 
     # Fields getters
@@ -625,6 +638,13 @@ class Trade:
         See also `Order.tag`.
         """
         return self.__tag
+
+    @property
+    def ticker(self):
+        """
+        Ticker of the asset being traded
+        """
+        return self.__ticker
 
     def set_tag(self, tag):
         self.__tag = tag
@@ -671,7 +691,13 @@ class Trade:
     def pips(self):
         """Trade profit (positive) or loss (negative) in pips"""
         price = self.__exit_price or self.__broker.last_price
-        return copysign(price - self.__entry_price, self.__size)
+        pips = None
+
+        # assuming only FX pairs have 6-char long tickers
+        if self.__ticker and len(self.__ticker) == 6:
+            multiplier = 100 if "jpy" in self.__ticker.lower() else 10000
+            pips = copysign(1, self.__size) * (price - self.__entry_price) * multiplier
+        return round(pips, 0)
 
     @property
     def pl_pct(self):
@@ -726,7 +752,7 @@ class Trade:
             order.cancel()
         if price:
             kwargs = {'stop': price} if type == 'sl' else {'limit': price}
-            order = self.__broker.new_order(-self.size, trade=self, tag=self.tag, **kwargs)
+            order = self.__broker.new_order(-self.size, trade=self, tag=self.tag, ticker=self.ticker, **kwargs)
             setattr(self, attr, order)
 
 
@@ -762,6 +788,7 @@ class _Broker:
                   sl: Optional[float] = None,
                   tp: Optional[float] = None,
                   tag: object = None,
+                  ticker: str = None,
                   *,
                   trade: Optional[Trade] = None):
         """
@@ -787,7 +814,7 @@ class _Broker:
                     "Short orders require: "
                     f"TP ({tp}) < LIMIT ({limit or stop or adjusted_price}) < SL ({sl})")
 
-        order = Order(self, size, limit, stop, sl, tp, trade, tag)
+        order = Order(self, size, limit, stop, sl, tp, trade, tag, ticker)
         # Put the new order in the order queue,
         # inserting SL/TP/trade-closing orders in-front
         if trade:
@@ -977,7 +1004,8 @@ class _Broker:
                                  order.sl,
                                  order.tp,
                                  time_index,
-                                 order.tag)
+                                 order.tag,
+                                 order.ticker)
 
                 # We need to reprocess the SL/TP orders newly added to the queue.
                 # This allows e.g. SL hitting in the same bar the order was open.
@@ -1032,12 +1060,18 @@ class _Broker:
         if trade._tp_order:
             self.orders.remove(trade._tp_order)
 
-        self.closed_trades.append(trade._replace(exit_price=price, exit_bar=time_index))
-        self._cash += trade.pl
+        tag = trade.tag
+        closed_trade = trade._replace(exit_price=price, exit_bar=time_index)
+        tag += [f"Prices: Open: {closed_trade.entry_price}, "
+                f"Exit: {closed_trade.exit_price}; "
+                f"Pips: {closed_trade.pips}"]
+        closed_trade.set_tag(tag)
+        self.closed_trades.append(closed_trade)
+        self._cash += closed_trade.pl
 
     def _open_trade(self, price: float, size: int,
-                    sl: Optional[float], tp: Optional[float], time_index: int, tag):
-        trade = Trade(self, size, price, time_index, tag)
+                    sl: Optional[float], tp: Optional[float], time_index: int, tag, ticker):
+        trade = Trade(self, size, price, time_index, tag, ticker)
         self.trades.append(trade)
         # Create SL/TP (bracket) orders.
         # Make sure SL order is created first so it gets adversarially processed before TP order
@@ -1061,6 +1095,7 @@ class Backtest:
     """
     def __init__(self,
                  data: pd.DataFrame,
+                 ticker: str,
                  strategy: Type[Strategy],
                  *,
                  cash: float = 10_000,
@@ -1163,6 +1198,7 @@ class Backtest:
                           'but `pd.DateTimeIndex` is advised.',
                           stacklevel=2)
 
+        self._ticker = ticker
         self._data: pd.DataFrame = data
         self._broker = partial(
             _Broker, cash=cash, commission=commission, margin=margin,
@@ -1219,9 +1255,10 @@ class Backtest:
             period of the `Strategy.I` indicator which lags the most.
             Obviously, this can affect results.
         """
+        ticker = self._ticker
         data = _Data(self._data.copy(deep=False))
         broker: _Broker = self._broker(data=data)
-        strategy: Strategy = self._strategy(broker, data, kwargs)
+        strategy: Strategy = self._strategy(broker, ticker, data, kwargs)
 
         strategy.init()
         data._update()  # Strategy.init might have changed/added to data.df
